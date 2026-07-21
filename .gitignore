@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+.superpowers/
+.claude/
+
+# dumps de la DB (se comparten aparte, no por git — pesan ~10 MB y cambian seguido)
+ami-*.dump
+
+# salida del skill graphify
+graphify-out/

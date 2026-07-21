@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "whatsapp-automation": {
+      "source": "claude-office-skills/skills",
+      "sourceType": "github",
+      "skillPath": "whatsapp-automation/SKILL.md",
+      "computedHash": "f9714da5a8e842b57a7728cdd01731577ca7eb785e5be0f6be1056770f915cfd"
+    }
+  }
+}

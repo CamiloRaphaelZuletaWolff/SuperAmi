@@ -1,0 +1,51 @@
+# Render Blueprint para el backend AMI.
+# Crea un Web Service (Docker) + una base Postgres administrada.
+# Deploy: subir el repo a GitHub -> Render Dashboard -> New + -> Blueprint ->
+# elegir el repo. Render pide los secretos marcados `sync: false`.
+#
+# Después del primer deploy hay que CARGAR LA BASE una sola vez con el dump de
+# embeddings Gemini (ver DEPLOY-render.md, sección "Cargar la base").
+services:
+  - type: web
+    name: ami-backend
+    runtime: docker
+    plan: free            # free duerme tras 15 min inactivo (~50s de arranque en frío).
+    region: oregon        # DB y web en la MISMA región (la DATABASE_URL interna solo cruza dentro de la región).
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PROVIDER
+        value: gemini
+      - key: GEMINI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai/
+      - key: MODELO_POTENTE
+        value: gemini-flash-latest
+      - key: MODELO_ECONOMICO
+        value: gemini-flash-lite-latest
+      - key: MODELO_EMBEDDINGS
+        value: gemini-embedding-001
+      - key: EMBEDDING_DIM
+        value: "1024"
+      # (Gemini no soporta nvext.guided_json; el provider lo detecta por base_url
+      #  y salta ese intento solo — no hace falta SALTAR_GUIDED_JSON.)
+      - key: WHATSAPP_VERIFY_TOKEN
+        value: ami2026
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ami-db
+          property: connectionString   # cadena INTERNA (web -> db dentro de Render)
+      # Secretos: Render los pide al crear el Blueprint (no viajan en el repo).
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+
+databases:
+  - name: ami-db
+    plan: free            # free: ~1 GB, expira a los 30 días. Suficiente para el hackathon.
+    region: oregon
+    postgresMajorVersion: "16"

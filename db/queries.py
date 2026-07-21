@@ -1,0 +1,304 @@
+import json
+
+from psycopg.types.json import Json
+
+_COLUMNAS_TRAMITE = [
+    "id", "nombre", "slug", "sinonimos", "descripcion", "resultado", "marco_legal",
+    "entidad_id", "costo_monto", "costo_moneda", "costo_concepto", "costo_es_gratuito",
+    "requisitos", "documentos", "ubicaciones", "modalidades", "enlaces",
+    "canal", "digitalizado", "embedding", "last_updated", "fuente",
+]
+
+
+def _vector_literal(embedding: list[float] | None) -> str | None:
+    if embedding is None:
+        return None
+    return "[" + ",".join(map(str, embedding)) + "]"
+
+
+def upsert_entidad(conn, entidad: dict) -> int:
+    fila = conn.execute(
+        """
+        INSERT INTO entidades (slug, nombre, sigla, sitio_web)
+        VALUES (%(slug)s, %(nombre)s, %(sigla)s, %(sitio_web)s)
+        ON CONFLICT (slug) DO UPDATE
+          SET nombre = EXCLUDED.nombre, sigla = EXCLUDED.sigla, sitio_web = EXCLUDED.sitio_web
+        RETURNING id
+        """,
+        entidad,
+    ).fetchone()
+    return fila[0]
+
+
+def upsert_categoria(conn, categoria: dict) -> int:
+    fila = conn.execute(
+        """
+        INSERT INTO categorias (slug, nombre) VALUES (%(slug)s, %(nombre)s)
+        ON CONFLICT (slug) DO UPDATE SET nombre = EXCLUDED.nombre
+        RETURNING id
+        """,
+        categoria,
+    ).fetchone()
+    return fila[0]
+
+
+def upsert_evento(conn, nombre: str) -> int:
+    fila = conn.execute(
+        """
+        INSERT INTO eventos_de_vida (nombre) VALUES (%(nombre)s)
+        ON CONFLICT (nombre) DO UPDATE SET nombre = EXCLUDED.nombre
+        RETURNING id
+        """,
+        {"nombre": nombre},
+    ).fetchone()
+    return fila[0]
+
+
+def guardar_tramite_completo(conn, fila: dict, embedding: list[float] | None) -> None:
+    entidad_id = upsert_entidad(conn, fila["entidad"])
+    params = {
+        **{k: fila.get(k) for k in _COLUMNAS_TRAMITE if k not in ("entidad_id", "embedding")},
+        "entidad_id": entidad_id,
+        "embedding": _vector_literal(embedding),
+        "requisitos": Json(fila["requisitos"]),
+        "documentos": Json(fila["documentos"]),
+        "ubicaciones": Json(fila["ubicaciones"]),
+        "modalidades": Json(fila["modalidades"]),
+        "enlaces": Json(fila["enlaces"]),
+    }
+    # fuente es NOT NULL con DEFAULT 'gob_bo'; al listarla explícita en el INSERT
+    # el DEFAULT no aplica, así que coalescemos aquí si el mapper no la fijó
+    params["fuente"] = params.get("fuente") or "gob_bo"
+    columnas = ", ".join(_COLUMNAS_TRAMITE)
+    placeholders = ", ".join(
+        f"%({c})s::vector" if c == "embedding" else f"%({c})s" for c in _COLUMNAS_TRAMITE
+    )
+    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in _COLUMNAS_TRAMITE if c != "id")
+    conn.execute(
+        f"INSERT INTO tramites ({columnas}) VALUES ({placeholders}) "
+        f"ON CONFLICT (id) DO UPDATE SET {updates}",
+        params,
+    )
+
+    conn.execute("DELETE FROM tramites_categorias WHERE tramite_id = %s", (fila["id"],))
+    for categoria in fila["categorias"]:
+        cat_id = upsert_categoria(conn, categoria)
+        conn.execute(
+            "INSERT INTO tramites_categorias (tramite_id, categoria_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (fila["id"], cat_id),
+        )
+
+    conn.execute("DELETE FROM tramites_eventos WHERE tramite_id = %s", (fila["id"],))
+    for evento in fila["eventos"]:
+        ev_id = upsert_evento(conn, evento)
+        conn.execute(
+            "INSERT INTO tramites_eventos (tramite_id, evento_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (fila["id"], ev_id),
+        )
+
+
+def listar_categorias(conn) -> list[dict]:
+    filas = conn.execute("SELECT slug, nombre FROM categorias ORDER BY nombre").fetchall()
+    return [{"slug": f[0], "nombre": f[1]} for f in filas]
+
+
+def listar_categorias_dominio(conn) -> list[dict]:
+    """Categorías con al menos un trámite en el dominio MVP (enum del filtro de retrieval).
+
+    No se encoge a las categorías del predicado: las entidades municipales emiten
+    trámites de casi todas las categorías (vivienda, transporte...), y una categoría
+    inferible que garantice ≥1 hit in-domain evita re-runs fail-open inútiles.
+    """
+    filas = conn.execute(
+        """
+        SELECT DISTINCT c.slug, c.nombre
+        FROM categorias c
+        JOIN tramites_categorias tc ON tc.categoria_id = c.id
+        JOIN dominio_mvp d ON d.tramite_id = tc.tramite_id
+        ORDER BY c.nombre
+        """
+    ).fetchall()
+    return [{"slug": f[0], "nombre": f[1]} for f in filas]
+
+
+def listar_eventos(conn) -> list[str]:
+    return [f[0] for f in conn.execute("SELECT nombre FROM eventos_de_vida ORDER BY nombre").fetchall()]
+
+
+def buscar_entidad_slug(conn, texto: str) -> str | None:
+    fila = conn.execute(
+        """
+        SELECT slug FROM entidades
+        WHERE sigla ILIKE %(t)s OR nombre ILIKE '%%' || %(t)s || '%%'
+        ORDER BY (sigla ILIKE %(t)s) DESC
+        LIMIT 1
+        """,
+        {"t": texto},
+    ).fetchone()
+    return fila[0] if fila else None
+
+
+_SQL_BUSCAR = """
+SELECT t.id, t.nombre, t.slug, t.descripcion, t.resultado, t.marco_legal,
+       t.canal, t.digitalizado,
+       t.costo_monto, t.costo_moneda, t.costo_concepto, t.costo_es_gratuito,
+       t.requisitos, t.documentos, t.ubicaciones, t.modalidades, t.enlaces,
+       e.nombre AS entidad_nombre, e.sitio_web AS entidad_sitio_web,
+       t.embedding <=> %(emb)s::vector AS distancia
+FROM tramites t
+LEFT JOIN entidades e ON e.id = t.entidad_id
+WHERE t.embedding IS NOT NULL
+  AND t.activo
+  AND EXISTS (SELECT 1 FROM dominio_mvp d WHERE d.tramite_id = t.id)
+  AND (%(cat)s::text IS NULL OR EXISTS (
+        SELECT 1 FROM tramites_categorias tc JOIN categorias c ON c.id = tc.categoria_id
+        WHERE tc.tramite_id = t.id AND c.slug = %(cat)s))
+  AND (%(ent)s::text IS NULL OR e.slug = %(ent)s)
+  AND (%(ev)s::text IS NULL OR EXISTS (
+        SELECT 1 FROM tramites_eventos te JOIN eventos_de_vida ev ON ev.id = te.evento_id
+        WHERE te.tramite_id = t.id AND ev.nombre = %(ev)s))
+ORDER BY t.embedding <=> %(emb)s::vector
+LIMIT %(limit)s
+"""
+
+
+def buscar_tramites(
+    conn,
+    embedding: list[float],
+    categoria_slug: str | None = None,
+    entidad_slug: str | None = None,
+    evento_nombre: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    cursor = conn.execute(
+        _SQL_BUSCAR,
+        {
+            "emb": _vector_literal(embedding),
+            "cat": categoria_slug,
+            "ent": entidad_slug,
+            "ev": evento_nombre,
+            "limit": limit,
+        },
+    )
+    nombres = [d.name for d in cursor.description]
+    filas = []
+    for tupla in cursor.fetchall():
+        fila = dict(zip(nombres, tupla))
+        fila["distancia"] = float(fila["distancia"])
+        if fila["costo_monto"] is not None:
+            fila["costo_monto"] = float(fila["costo_monto"])
+        filas.append(fila)
+    return filas
+
+
+def registrar_consulta(conn, datos: dict) -> None:
+    conn.execute(
+        """
+        INSERT INTO consultas_log
+          (conversation_id, mensaje, consulta_acumulada, filtros, top_ids, top_distancias, veredicto, respuesta_tipo)
+        VALUES (%(conversation_id)s, %(mensaje)s, %(consulta_acumulada)s, %(filtros)s,
+                %(top_ids)s, %(top_distancias)s, %(veredicto)s, %(respuesta_tipo)s)
+        """,
+        {**datos, "filtros": Json(datos["filtros"]) if datos.get("filtros") else None},
+    )
+
+
+def leer_estado_tramites(conn) -> dict[int, dict]:
+    filas = conn.execute("SELECT id, last_updated, activo FROM tramites").fetchall()
+    return {f[0]: {"last_updated": f[1], "activo": f[2]} for f in filas}
+
+
+def marcar_inactivos(conn, ids) -> None:
+    conn.execute("UPDATE tramites SET activo = false WHERE id = ANY(%s)", (list(ids),))
+
+
+def marcar_activos(conn, ids) -> None:
+    conn.execute("UPDATE tramites SET activo = true WHERE id = ANY(%s)", (list(ids),))
+
+
+def guardar_sync_state(conn) -> None:
+    conn.execute(
+        """
+        INSERT INTO sync_state (id, last_sync, updated_at) VALUES (1, CURRENT_DATE, now())
+        ON CONFLICT (id) DO UPDATE SET last_sync = EXCLUDED.last_sync, updated_at = now()
+        """
+    )
+
+
+def leer_fetch_cache(conn, url: str, ttl_dias: int = 7) -> dict | None:
+    fila = conn.execute(
+        "SELECT datos FROM fetch_cache WHERE url = %s AND fetched_at > now() - make_interval(days => %s)",
+        (url, ttl_dias),
+    ).fetchone()
+    return fila[0] if fila else None
+
+
+def guardar_fetch_cache(conn, url: str, datos: dict) -> None:
+    conn.execute(
+        """
+        INSERT INTO fetch_cache (url, datos, fetched_at) VALUES (%s, %s, now())
+        ON CONFLICT (url) DO UPDATE SET datos = EXCLUDED.datos, fetched_at = now()
+        """,
+        (url, Json(datos)),
+    )
+
+
+def candidatos_relacionados(conn, tramite_id: int, limit: int = 5) -> list[dict]:
+    """Candidatos baratos: misma entidad o evento de vida compartido, por cercanía de embedding.
+
+    Sin acotar por dominio_mvp a propósito: el grafo de relaciones cruza la frontera
+    del dominio (prerequisitos nacionales de trámites municipales) y no es retrieval.
+    """
+    filas = conn.execute(
+        """
+        SELECT t.id, t.nombre, t.descripcion, e.nombre AS entidad_nombre,
+               t.embedding <=> b.embedding AS distancia
+        FROM tramites b
+        JOIN tramites t ON t.id <> b.id AND t.embedding IS NOT NULL AND t.activo
+        LEFT JOIN entidades e ON e.id = t.entidad_id
+        WHERE b.id = %(id)s AND b.embedding IS NOT NULL
+          AND (t.entidad_id = b.entidad_id
+               OR EXISTS (
+                    SELECT 1 FROM tramites_eventos te1
+                    JOIN tramites_eventos te2 ON te2.evento_id = te1.evento_id
+                    WHERE te1.tramite_id = b.id AND te2.tramite_id = t.id))
+        ORDER BY t.embedding <=> b.embedding
+        LIMIT %(limit)s
+        """,
+        {"id": tramite_id, "limit": limit},
+    ).fetchall()
+    return [
+        {"id": f[0], "nombre": f[1], "descripcion": f[2], "entidad_nombre": f[3], "distancia": float(f[4])}
+        for f in filas
+    ]
+
+
+def guardar_relaciones(conn, tramite_id: int, relaciones: list[dict]) -> None:
+    conn.execute("DELETE FROM tramites_relacionados WHERE tramite_id = %s", (tramite_id,))
+    for relacion in relaciones:
+        if relacion["tipo"] == "ninguna":
+            continue
+        conn.execute(
+            """
+            INSERT INTO tramites_relacionados (tramite_id, related_tramite_id, tipo_relacion)
+            VALUES (%s, %s, %s) ON CONFLICT DO NOTHING
+            """,
+            (tramite_id, relacion["id"], relacion["tipo"]),
+        )
+
+
+def listar_relacionados(conn, tramite_id: int, limit: int = 3) -> list[dict]:
+    # sin acotar por dominio_mvp a propósito: un trámite municipal puede tener como
+    # requisito previo uno nacional (CI del SEGIP, NIT) y narrarlo es deseable
+    filas = conn.execute(
+        """
+        SELECT tr.tipo_relacion, t.nombre, e.nombre
+        FROM tramites_relacionados tr
+        JOIN tramites t ON t.id = tr.related_tramite_id AND t.activo
+        LEFT JOIN entidades e ON e.id = t.entidad_id
+        WHERE tr.tramite_id = %s
+        LIMIT %s
+        """,
+        (tramite_id, limit),
+    ).fetchall()
+    return [{"tipo": f[0], "nombre": f[1], "entidad_nombre": f[2]} for f in filas]

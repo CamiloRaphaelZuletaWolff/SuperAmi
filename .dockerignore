@@ -1,0 +1,19 @@
+# No meter en la imagen: entornos, secretos, dumps pesados, docs, tests.
+.venv/
+venv/
+.git/
+.gitignore
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.dump
+docs/
+tests/
+graphify-out/
+.agents/
+.claude/
+.superpowers/
+*.md
+docker-compose*.yml

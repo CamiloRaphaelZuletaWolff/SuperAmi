@@ -1,0 +1,51 @@
+# Stack de producción para EC2: Postgres+pgvector + backend AMI + Caddy (HTTPS
+# automático con Let's Encrypt). Solo Caddy expone puertos al mundo (80/443);
+# el app y la DB quedan internos en la red de compose.
+#
+# Uso en la instancia:
+#   docker compose -f docker-compose.prod.yml up -d --build
+# (requiere un archivo .env con las claves y SITE_ADDRESS — ver DEPLOY-ec2.md)
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ami
+      POSTGRES_PASSWORD: ami
+      POSTGRES_DB: ami
+    volumes:
+      - ami_pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    restart: unless-stopped
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      # override: dentro de compose la DB es el servicio "db" en el puerto 5432
+      # (esto pisa el DATABASE_URL del .env, que apunta a localhost:5434)
+      DATABASE_URL: postgresql://ami:ami@db:5432/ami
+    depends_on:
+      - db
+    restart: unless-stopped
+    # no publica puertos: solo Caddy lo alcanza por la red interna (app:8000)
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}   # ej. 54-91-22-10.sslip.io (lo toma del .env)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  ami_pgdata:
+  caddy_data:
+  caddy_config:

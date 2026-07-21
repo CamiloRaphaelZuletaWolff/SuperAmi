@@ -1,0 +1,5 @@
+# Caddy pide y renueva el certificado TLS solo (Let's Encrypt) para SITE_ADDRESS
+# y hace de proxy inverso al backend. SITE_ADDRESS viene del .env (ver compose).
+{$SITE_ADDRESS} {
+	reverse_proxy app:8000
+}
