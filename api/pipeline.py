@@ -22,12 +22,12 @@ from providers.base import ChatProvider, EmbeddingProvider
 logger = logging.getLogger(__name__)
 
 MENSAJE_NO_ENCONTRADO = (
-    "¡Uy! 😅 No encontré un trámite que coincida con lo que me pedís. Por ahora te puedo "
+    "¡Uy! 😅 No encontré un trámite que coincida con lo que me pides. Por ahora te puedo "
     "ayudar con *impuestos*, *empresas* y *trámites municipales* (catastro incluido). "
-    "Si tu consulta es de esos temas, contámela con otras palabras y la buscamos juntos 🙌"
+    "Si tu consulta es de esos temas, cuéntamela con otras palabras y la buscamos juntos 🙌"
 )
 MENSAJE_ERROR = (
-    "¡Uf! Tuve un problemita procesando tu consulta 😔. ¿Me la mandás de nuevo en un "
+    "¡Uf! Tuve un problemita procesando tu consulta 😔. ¿Me la envías de nuevo en un "
     "momentito? Ya te ayudo 🙌"
 )
 MENSAJE_BIENVENIDA = (
@@ -36,7 +36,7 @@ MENSAJE_BIENVENIDA = (
     "📋 *Impuestos* — impuesto a la propiedad (casas, autos), pagos municipales, NIT…\n"
     "🏢 *Empresas* — cómo registrar tu empresa, licencia de funcionamiento, marcas…\n"
     "🏛️ *Municipales y catastro* — certificado catastral, permisos de construcción, etc.\n\n"
-    "Contame qué necesitás hacer y te digo los *requisitos*, el *costo* y *dónde* hacerlo 😊"
+    "Cuéntame qué necesitas hacer y te digo los *requisitos*, el *costo* y *dónde* hacerlo 😊"
 )
 
 # Smalltalk / saludos: mensajes sin intención concreta de trámite. Se responden

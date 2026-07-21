@@ -115,7 +115,7 @@ async def recibir_mensaje(
             _enviar_texto,
             wa_id,
             "¡Hola! 👋 Por ahora solo puedo leer mensajes de texto. "
-            "Escribime tu consulta y con gusto te ayudo con tu trámite 😊",
+            "Escríbeme tu consulta y con gusto te ayudo con tu trámite 😊",
         )
         return Response(status_code=200)
 
