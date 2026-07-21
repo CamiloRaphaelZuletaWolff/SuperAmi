@@ -99,7 +99,8 @@ def test_error_interno_emite_evento_error(monkeypatch):
     monkeypatch.setattr(pipeline, "buscar_tramites", explota)
     deps = _deps()
     cid = deps.store.get_or_create(None)
-    eventos = list(procesar_mensaje(deps, cid, "hola"))
+    # mensaje concreto (no un saludo): un saludo cortocircuita antes del retrieval
+    eventos = list(procesar_mensaje(deps, cid, "papel del carro"))
     assert eventos[-1][0] == "error"
 
 

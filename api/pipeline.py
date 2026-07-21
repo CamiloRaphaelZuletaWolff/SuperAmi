@@ -1,4 +1,6 @@
 import logging
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Iterator
 
@@ -28,6 +30,41 @@ MENSAJE_ERROR = (
     "¡Uf! Tuve un problemita procesando tu consulta 😔. ¿Me la mandás de nuevo en un "
     "momentito? Ya te ayudo 🙌"
 )
+MENSAJE_BIENVENIDA = (
+    "¡Hola! 👋 Soy *AMI*, tu asistente de trámites en Bolivia 🇧🇴.\n\n"
+    "Te puedo dar información sobre:\n"
+    "📋 *Impuestos* — impuesto a la propiedad (casas, autos), pagos municipales, NIT…\n"
+    "🏢 *Empresas* — cómo registrar tu empresa, licencia de funcionamiento, marcas…\n"
+    "🏛️ *Municipales y catastro* — certificado catastral, permisos de construcción, etc.\n\n"
+    "Contame qué necesitás hacer y te digo los *requisitos*, el *costo* y *dónde* hacerlo 😊"
+)
+
+# Smalltalk / saludos: mensajes sin intención concreta de trámite. Se responden
+# con la bienvenida (sin retrieval ni LLM) en vez de describir un trámite azaroso.
+_SMALLTALK = {
+    "hola", "holas", "holi", "buenas", "buenos dias", "buenas tardes", "buenas noches",
+    "buen dia", "hey", "ola", "alo", "hi", "hello", "saludos", "que tal", "como estas",
+    "que hace", "que haces", "gracias", "muchas gracias", "ok", "okay", "listo", "hola ami",
+}
+_INICIO_SALUDO = {"hola", "buenas", "hey", "ola", "hi", "holi", "saludos", "alo", "hello", "buenos", "buen"}
+
+
+def _normalizar_texto(t: str) -> str:
+    t = unicodedata.normalize("NFD", t.lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", t)).strip()
+
+
+def _es_saludo_o_vago(mensaje: str) -> bool:
+    """True si el mensaje es un saludo/smalltalk sin pedido concreto de trámite."""
+    n = _normalizar_texto(mensaje)
+    if not n:
+        return True
+    if n in _SMALLTALK:
+        return True
+    palabras = n.split()
+    # mensaje corto que arranca con saludo y no trae intención (ej. "hola!", "buenas che")
+    return len(palabras) <= 3 and palabras[0] in _INICIO_SALUDO
 
 
 @dataclass
@@ -108,6 +145,15 @@ def procesar_mensaje(deps: Deps, conversation_id: str, mensaje: str) -> Iterator
     veredicto: str | None = None
     try:
         deps.store.append(conversation_id, "user", mensaje)
+
+        # Saludo / smalltalk: dar la bienvenida con lo que AMI puede hacer, en vez
+        # de recuperar un trámite azaroso y describirlo (se veía como alucinación).
+        if _es_saludo_o_vago(mensaje):
+            deps.store.append(conversation_id, "assistant", MENSAJE_BIENVENIDA, tipo="welcome")
+            yield ("answer", {"delta": MENSAJE_BIENVENIDA})
+            yield ("answer", {"done": True, "tramite_ids": []})
+            return
+
         consulta = deps.store.texto_de_consulta(conversation_id)
 
         filtros = inferir_filtros(deps, consulta)
