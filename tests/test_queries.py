@@ -8,6 +8,7 @@ from db.queries import (
     guardar_tramite_completo,
     listar_categorias,
     listar_eventos,
+    obtener_tramite,
 )
 
 DIM = 1024
@@ -188,3 +189,16 @@ def test_candidatos_y_relaciones(conn):
     conn.commit()
     relacionados = listar_relacionados(conn, 900010)
     assert relacionados == [{"tipo": "siguiente_paso", "nombre": "TRAMITE VECINO", "entidad_nombre": "SEGIP TEST"}]
+
+
+def test_obtener_tramite_devuelve_ficha_sin_embedding(conn):
+    guardar_tramite_completo(conn, _fila(900004, "FICHA"), _vec(0.5))
+    conn.commit()
+    ficha = obtener_tramite(conn, 900004)
+    assert ficha["nombre"] == "FICHA"
+    assert ficha["costo_monto"] == 10.0
+    assert ficha["entidad_sigla"] == "SGT"
+    assert ficha["requisitos"] == [{"nombre": "CI", "comentario": None}]
+    assert ficha["relacionados"] == []
+    assert "embedding" not in ficha
+    assert obtener_tramite(conn, 999999) is None

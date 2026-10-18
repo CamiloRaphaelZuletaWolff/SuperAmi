@@ -4,7 +4,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Iterator
 
-from api.confidence import evaluar_confianza
+from api.confidence import UMBRAL_DISTANCIA_MAX, UMBRAL_GAP, evaluar_confianza
 from api.conversations import ConversationStore
 from api.live_fetch import buscar_en_vivo
 from api.prompts import (
@@ -138,7 +138,29 @@ def _registrar(conversation_id: str, mensaje: str, consulta: str, filtros: dict,
         logger.warning("no se pudo registrar la consulta en consultas_log", exc_info=True)
 
 
-def procesar_mensaje(deps: Deps, conversation_id: str, mensaje: str) -> Iterator[tuple[str, dict]]:
+def _traza(veredicto: str, filtros: dict, hits: list[dict]) -> dict:
+    """Resumen explicable del retrieval para el frontend web (no viaja por WhatsApp)."""
+    return {
+        "veredicto": veredicto,
+        "umbrales": {"gap": UMBRAL_GAP, "distancia_max": UMBRAL_DISTANCIA_MAX},
+        "filtros": filtros,
+        "candidatos": [
+            {
+                "id": h["id"],
+                "nombre": h["nombre"],
+                "entidad_nombre": h.get("entidad_nombre"),
+                "distancia": round(h["distancia"], 4),
+            }
+            for h in hits[:5]
+        ],
+    }
+
+
+def procesar_mensaje(
+    deps: Deps, conversation_id: str, mensaje: str, con_traza: bool = False
+) -> Iterator[tuple[str, dict]]:
+    """Orquesta una respuesta. Con `con_traza=True` emite además un evento "trace"
+    (veredicto del gate + candidatos) antes de responder; lo usa el frontend web."""
     consulta = mensaje
     filtros: dict = {}
     hits: list[dict] = []
@@ -168,6 +190,8 @@ def procesar_mensaje(deps: Deps, conversation_id: str, mensaje: str) -> Iterator
                 hits = buscar_tramites(conn, embedding)
 
         veredicto = evaluar_confianza([h["distancia"] for h in hits])
+        if con_traza:
+            yield ("trace", _traza(veredicto, filtros, hits))
 
         if veredicto in ("vacio", "lejano"):
             datos_vivos = buscar_en_vivo(deps.chat_potente, hits[:3])

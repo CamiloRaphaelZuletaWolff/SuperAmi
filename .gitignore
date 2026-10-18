@@ -1,4 +1,7 @@
 .env
+# claves SSH / certificados — NUNCA subir a git (ami-key.pem es la clave de EC2)
+*.pem
+*.key
 __pycache__/
 *.pyc
 .venv/

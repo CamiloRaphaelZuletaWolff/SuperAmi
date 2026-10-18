@@ -17,3 +17,7 @@ graphify-out/
 .superpowers/
 *.md
 docker-compose*.yml
+frontend/
+.github/
+*.pem
+Caddyfile

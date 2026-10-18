@@ -1,18 +1,19 @@
-# Render Blueprint para el backend AMI.
-# Crea un Web Service (Docker) + una base Postgres administrada.
-# Deploy: subir el repo a GitHub -> Render Dashboard -> New + -> Blueprint ->
-# elegir el repo. Render pide los secretos marcados `sync: false`.
+# Render Blueprint del backend AMI (FastAPI). Guía completa: DEPLOY.md
 #
-# Después del primer deploy hay que CARGAR LA BASE una sola vez con el dump de
-# embeddings Gemini (ver DEPLOY-render.md, sección "Cargar la base").
+# Render Dashboard -> New + -> Blueprint -> elegir este repo. Render pide los
+# valores marcados `sync: false` (secretos: no viajan en el repo).
+#
+# La base NO vive en Render: la Postgres gratuita de Render expira a los 30 días.
+# Se usa Neon (free, sin expiración, trae pgvector). DATABASE_URL es la cadena de
+# Neon con ?sslmode=require. La base se carga UNA vez con el dump (DEPLOY.md §3).
 services:
   - type: web
     name: ami-backend
     runtime: docker
-    plan: free            # free duerme tras 15 min inactivo (~50s de arranque en frío).
-    region: oregon        # DB y web en la MISMA región (la DATABASE_URL interna solo cruza dentro de la región).
+    plan: free            # duerme tras 15 min sin tráfico (~50 s de arranque en frío)
+    region: oregon        # misma región que Neon (AWS us-west-2) -> menos latencia por query
     healthCheckPath: /health
-    autoDeploy: true
+    autoDeploy: true      # cada push a main redespliega (el CI corre en GitHub Actions)
     envVars:
       - key: PROVIDER
         value: gemini
@@ -23,19 +24,19 @@ services:
       - key: MODELO_ECONOMICO
         value: gemini-flash-lite-latest
       - key: MODELO_EMBEDDINGS
-        value: gemini-embedding-001
+        value: gemini-embedding-001   # debe coincidir con el dump cargado (gemini)
       - key: EMBEDDING_DIM
         value: "1024"
-      # (Gemini no soporta nvext.guided_json; el provider lo detecta por base_url
-      #  y salta ese intento solo — no hace falta SALTAR_GUIDED_JSON.)
-      - key: WHATSAPP_VERIFY_TOKEN
-        value: ami2026
-      - key: DATABASE_URL
-        fromDatabase:
-          name: ami-db
-          property: connectionString   # cadena INTERNA (web -> db dentro de Render)
-      # Secretos: Render los pide al crear el Blueprint (no viajan en el repo).
+      - key: CHAT_RATE_LIMIT_PER_MIN
+        value: "12"
+      # --- valores que Render te pide al crear el Blueprint ---
+      - key: DATABASE_URL         # postgresql://user:pass@ep-xxx.us-west-2.aws.neon.tech/neondb?sslmode=require
+        sync: false
       - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS         # https://<tu-frontend>.vercel.app (sin "/" final)
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
         sync: false
       - key: WHATSAPP_TOKEN
         sync: false
@@ -43,9 +44,3 @@ services:
         sync: false
       - key: WHATSAPP_APP_SECRET
         sync: false
-
-databases:
-  - name: ami-db
-    plan: free            # free: ~1 GB, expira a los 30 días. Suficiente para el hackathon.
-    region: oregon
-    postgresMajorVersion: "16"

@@ -229,3 +229,27 @@ def test_relacionados_roto_no_rompe_respuesta(monkeypatch):
     cid = deps.store.get_or_create(None)
     eventos = list(procesar_mensaje(deps, cid, "carnet"))
     assert eventos[-1] == ("answer", {"done": True, "tramite_ids": [1]})
+
+
+def test_traza_opt_in_antes_de_responder(monkeypatch):
+    _preparar(monkeypatch, [_hit(1, "CEDULA", 0.2), _hit(2, "PASAPORTE", 0.4)])
+    deps = _deps()
+    cid = deps.store.get_or_create(None)
+    eventos = list(procesar_mensaje(deps, cid, "quiero sacar mi carnet", con_traza=True))
+    assert eventos[0] == ("trace", {
+        "veredicto": "claro",
+        "umbrales": {"gap": pipeline.UMBRAL_GAP, "distancia_max": pipeline.UMBRAL_DISTANCIA_MAX},
+        "filtros": {},
+        "candidatos": [
+            {"id": 1, "nombre": "CEDULA", "entidad_nombre": "SEGIP", "distancia": 0.2},
+            {"id": 2, "nombre": "PASAPORTE", "entidad_nombre": "SEGIP", "distancia": 0.4},
+        ],
+    })
+    assert eventos[-1] == ("answer", {"done": True, "tramite_ids": [1]})
+
+
+def test_sin_traza_por_defecto(monkeypatch):
+    _preparar(monkeypatch, [_hit(1, "CEDULA", 0.2), _hit(2, "PASAPORTE", 0.4)])
+    deps = _deps()
+    cid = deps.store.get_or_create(None)
+    assert all(e != "trace" for e, _ in procesar_mensaje(deps, cid, "quiero sacar mi carnet"))

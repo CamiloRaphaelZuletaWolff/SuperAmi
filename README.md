@@ -1,25 +1,42 @@
-# AMI — Asistente de Trámites Bolivia (demo)
+# AMI — Asistente de Trámites Bolivia
 
-Chat backend que responde preguntas sobre trámites del Estado boliviano
-(qué necesito, cuánto cuesta, dónde voy) con RAG sobre el dataset abierto
-[tramites-bo](https://github.com/datosbolivia/tramites-bo).
+[![CI](https://github.com/CamiloRaphaelZuletaWolff/SuperAmi/actions/workflows/ci.yml/badge.svg)](https://github.com/CamiloRaphaelZuletaWolff/SuperAmi/actions/workflows/ci.yml)
 
-Docs: `CLAUDE.md` (spec original) · `DECISIONS.md` (decisiones) ·
-`ROADMAP.md` (qué falta para el MVP completo) ·
-`docs/superpowers/specs/` (diseño del demo).
+**Demo:** <!-- reemplazar tras el deploy --> https://ami-web.vercel.app · también por WhatsApp
+
+Asistente que responde preguntas sobre trámites del Estado boliviano (qué
+necesito, cuánto cuesta, dónde voy) con RAG sobre el dataset abierto
+[tramites-bo](https://github.com/datosbolivia/tramites-bo) más trámites
+scrapeados del GAMLP La Paz. Se usa por WhatsApp (Meta Cloud API) o por la web.
+
+```
+ WhatsApp ──webhook──┐                       ┌── Gemini (filtros, síntesis, embeddings)
+                     ▼                       │
+ Web (Next.js) ──SSE──► FastAPI ──► pipeline ┼── Postgres + pgvector (HNSW, 1.814 trámites,
+   Vercel              Render       RAG      │    grafo de 4.327 relaciones) · Neon
+                                             └── live fetch de la página oficial (fallback)
+```
+
+El pipeline: filtros inferidos por un modelo liviano → búsqueda vectorial
+acotada al dominio → **gate de confianza determinista** (claro / ambiguo →
+pregunta aclaratoria / lejano → consulta en vivo) → síntesis anclada a la ficha
+oficial. La web muestra ese veredicto y los candidatos comparados en cada respuesta.
+
+Docs: `DEPLOY.md` (deploy gratuito paso a paso) · `DECISIONS.md` (decisiones y
+evals) · `ROADMAP.md` · `CLAUDE.md` (spec original).
 
 ## Requisitos
 
-- Python 3.11+, Docker + docker compose
-- API key gratuita de [NVIDIA Build](https://build.nvidia.com) (formato `nvapi-...`)
-  — alternativa: `PROVIDER=anthropic` con keys de Anthropic + Voyage
+- Python 3.11+, Docker + docker compose, Node 20+ (frontend)
+- API key gratuita de [Google AI Studio](https://aistudio.google.com/apikey) (`PROVIDER=gemini`)
+  — alternativas: NVIDIA Build (`nvidia`), Anthropic + Voyage (`anthropic`), Ollama (`ollama`)
 
 ## Setup
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env    # completar NVIDIA_API_KEY
-docker compose up -d    # Postgres+pgvector en localhost:5433
+cp .env.example .env    # completar GEMINI_API_KEY
+docker compose up -d    # Postgres+pgvector en localhost:5434
 ```
 
 > En Windows el intérprete del venv es `venv\Scripts\python.exe` (y
@@ -55,7 +72,18 @@ curl -N -X POST localhost:8000/chat -H 'content-type: application/json' \
 La respuesta es un stream SSE. Eventos: `answer` (deltas de texto y un
 `{"done": true, "tramite_ids": [...]}` final), `clarification` (pregunta
 aclaratoria — respondé mandando otro mensaje con el mismo
-`conversation_id`), `error`.
+`conversation_id`), `error`. Con `"traza": true` en el body llega además un
+evento `trace` (veredicto del gate, umbrales, filtros y candidatos con su
+distancia). Otros endpoints: `GET /tramites/{id}` (ficha), `GET /stats`,
+`GET /health`. `/chat` tiene límite por IP (`CHAT_RATE_LIMIT_PER_MIN`).
+
+## Frontend web
+
+```bash
+cd frontend
+cp .env.example .env.local   # NEXT_PUBLIC_API_URL=http://localhost:8000
+npm install && npm run dev   # http://localhost:3000
+```
 
 Seguimiento de conversación:
 

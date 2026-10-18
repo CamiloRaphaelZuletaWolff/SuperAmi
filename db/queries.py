@@ -302,3 +302,56 @@ def listar_relacionados(conn, tramite_id: int, limit: int = 3) -> list[dict]:
         (tramite_id, limit),
     ).fetchall()
     return [{"tipo": f[0], "nombre": f[1], "entidad_nombre": f[2]} for f in filas]
+
+
+_SQL_FICHA = """
+SELECT t.id, t.nombre, t.descripcion, t.resultado, t.marco_legal, t.canal, t.digitalizado,
+       t.costo_monto, t.costo_moneda, t.costo_concepto, t.costo_es_gratuito,
+       t.requisitos, t.documentos, t.ubicaciones, t.modalidades, t.enlaces,
+       t.last_updated, t.fuente,
+       e.nombre AS entidad_nombre, e.sigla AS entidad_sigla, e.sitio_web AS entidad_sitio_web
+FROM tramites t
+LEFT JOIN entidades e ON e.id = t.entidad_id
+WHERE t.id = %s AND t.activo
+"""
+
+
+def obtener_tramite(conn, tramite_id: int) -> dict | None:
+    """Ficha completa de un trámite (sin embedding) para el frontend web."""
+    cursor = conn.execute(_SQL_FICHA, (tramite_id,))
+    tupla = cursor.fetchone()
+    if tupla is None:
+        return None
+    ficha = dict(zip([d.name for d in cursor.description], tupla))
+    if ficha["costo_monto"] is not None:
+        ficha["costo_monto"] = float(ficha["costo_monto"])
+    if ficha["last_updated"] is not None:
+        ficha["last_updated"] = ficha["last_updated"].isoformat()
+    filas = conn.execute(
+        """
+        SELECT t.id, tr.tipo_relacion, t.nombre, e.nombre
+        FROM tramites_relacionados tr
+        JOIN tramites t ON t.id = tr.related_tramite_id AND t.activo
+        LEFT JOIN entidades e ON e.id = t.entidad_id
+        WHERE tr.tramite_id = %s
+        LIMIT 5
+        """,
+        (tramite_id,),
+    ).fetchall()
+    ficha["relacionados"] = [
+        {"id": f[0], "tipo": f[1], "nombre": f[2], "entidad_nombre": f[3]} for f in filas
+    ]
+    return ficha
+
+
+def estadisticas(conn) -> dict:
+    """Cifras del corpus para la portada del frontend."""
+    fila = conn.execute(
+        """
+        SELECT (SELECT count(*) FROM tramites WHERE activo),
+               (SELECT count(*) FROM dominio_mvp d JOIN tramites t ON t.id = d.tramite_id AND t.activo),
+               (SELECT count(*) FROM entidades),
+               (SELECT count(*) FROM tramites_relacionados)
+        """
+    ).fetchone()
+    return {"tramites": fila[0], "en_dominio": fila[1], "entidades": fila[2], "relaciones": fila[3]}
