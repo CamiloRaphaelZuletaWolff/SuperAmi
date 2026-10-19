@@ -17,3 +17,40 @@ graphify-out/
 
 # notas locales de traspaso entre sesiones: pueden tener datos sensibles
 HANDOFF.md
+
+# herramientas de IA / agentes (no son parte del producto)
+.agents/
+skills-lock.json
+
+# variables de entorno (solo se publican las plantillas *.example)
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# datos y llaves: nunca al repo
+*.dump
+*.sql.gz
+*.p12
+
+# Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# frontend (Next.js)
+node_modules/
+.next/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# logs / sistema / editores
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
