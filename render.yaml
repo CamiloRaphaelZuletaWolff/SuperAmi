@@ -29,6 +29,10 @@ services:
         value: "1024"
       - key: CHAT_RATE_LIMIT_PER_MIN
         value: "12"
+      - key: WHATSAPP_RATE_LIMIT_PER_MIN   # por número de WhatsApp
+        value: "6"
+      # WHATSAPP_ALLOW_UNSIGNED NO va acá: sin WHATSAPP_APP_SECRET el webhook
+      # rechaza todo (fail-closed). Ese opt-out es solo para desarrollo local.
       # --- valores que Render te pide al crear el Blueprint ---
       - key: DATABASE_URL         # postgresql://user:pass@ep-xxx.us-west-2.aws.neon.tech/neondb?sslmode=require
         sync: false
@@ -36,11 +40,11 @@ services:
         sync: false
       - key: CORS_ORIGINS         # https://<tu-frontend>.vercel.app (sin "/" final)
         sync: false
-      - key: WHATSAPP_VERIFY_TOKEN
+      - key: WHATSAPP_VERIFY_TOKEN    # obligatorio para verificar el webhook
         sync: false
       - key: WHATSAPP_TOKEN
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID
         sync: false
-      - key: WHATSAPP_APP_SECRET
+      - key: WHATSAPP_APP_SECRET      # obligatorio: sin él el webhook responde 401 a todo
         sync: false

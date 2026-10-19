@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { conversar, ErrorApi, obtenerStats, type Stats, type Traza } from "@/lib/api";
-import { deWhatsappAMarkdown } from "@/lib/texto";
+import { deWhatsappAMarkdown, hrefSeguro } from "@/lib/texto";
 import { ComoFunciona } from "./ComoFunciona";
 import { Despertador } from "./Despertador";
 import { Expediente } from "./Expediente";
@@ -130,7 +130,7 @@ export function Asistente() {
             <button type="button" onClick={() => setComoFunciona(true)}>
               Cómo funciona
             </button>
-            <a href={REPO} target="_blank" rel="noreferrer">
+            <a href={REPO} target="_blank" rel="noopener noreferrer">
               Código
             </a>
           </nav>
@@ -182,12 +182,22 @@ export function Asistente() {
                   ) : m.rol === "ami" ? (
                     <div className="markdown">
                       <ReactMarkdown
+                        // el texto viene del LLM: sin HTML crudo (no hay rehype-raw), sin imágenes
+                        // (una <img> a un dominio ajeno filtraría la IP del visitante) y solo
+                        // enlaces http(s); urlTransform ya limpia javascript:, esto es una 2da capa
+                        disallowedElements={["img"]}
+                        unwrapDisallowed
                         components={{
-                          a: ({ href, children }) => (
-                            <a href={href} target="_blank" rel="noreferrer">
-                              {children}
-                            </a>
-                          ),
+                          a: ({ href, children }) => {
+                            const seguro = hrefSeguro(href);
+                            return seguro ? (
+                              <a href={seguro} target="_blank" rel="noopener noreferrer">
+                                {children}
+                              </a>
+                            ) : (
+                              <span>{children}</span>
+                            );
+                          },
                         }}
                       >
                         {deWhatsappAMarkdown(m.texto)}

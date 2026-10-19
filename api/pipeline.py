@@ -67,6 +67,20 @@ def _es_saludo_o_vago(mensaje: str) -> bool:
     return len(palabras) <= 3 and palabras[0] in _INICIO_SALUDO
 
 
+# Topes de contexto: una conversación larga (o alguien que la estira a propósito)
+# no debe mandar al LLM/embeddings un historial cada vez más grande y caro.
+MAX_MENSAJES_HISTORIAL = 20
+MAX_CHARS_CONSULTA = 4000
+
+
+def _historial_reciente(store: ConversationStore, conversation_id: str) -> list[dict]:
+    """Últimos MAX_MENSAJES_HISTORIAL mensajes, empezando por uno del usuario."""
+    recientes = store.mensajes(conversation_id)[-MAX_MENSAJES_HISTORIAL:]
+    while recientes and recientes[0]["role"] != "user":
+        recientes = recientes[1:]
+    return recientes
+
+
 @dataclass
 class Deps:
     chat_economico: ChatProvider
@@ -176,7 +190,8 @@ def procesar_mensaje(
             yield ("answer", {"done": True, "tramite_ids": []})
             return
 
-        consulta = deps.store.texto_de_consulta(conversation_id)
+        # lo más reciente es lo que importa para el retrieval
+        consulta = deps.store.texto_de_consulta(conversation_id)[-MAX_CHARS_CONSULTA:]
 
         filtros = inferir_filtros(deps, consulta)
         embedding = deps.embedder.embed_query(consulta)
@@ -204,7 +219,7 @@ def procesar_mensaje(
             partes = []
             for delta in deps.chat_potente.stream(
                 system=system_de_sintesis_en_vivo(datos_vivos),
-                messages=deps.store.mensajes(conversation_id),
+                messages=_historial_reciente(deps.store, conversation_id),
                 max_tokens=4096,
             ):
                 partes.append(delta)
@@ -238,7 +253,7 @@ def procesar_mensaje(
         partes: list[str] = []
         for delta in deps.chat_potente.stream(
             system=system_de_sintesis(top, alternativas=alternativas, relacionados=relacionados or None),
-            messages=deps.store.mensajes(conversation_id),
+            messages=_historial_reciente(deps.store, conversation_id),
             max_tokens=4096,
         ):
             partes.append(delta)

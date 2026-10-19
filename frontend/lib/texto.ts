@@ -3,6 +3,18 @@ export function deWhatsappAMarkdown(texto: string): string {
   return texto.replace(/(^|[^*\w])\*(?!\s)([^*\n]+?)\*(?!\*)/g, "$1**$2**");
 }
 
+/** Solo deja pasar enlaces http(s) absolutos. Los href salen del dataset o del
+ * LLM: un "javascript:..." o "data:..." en un <a> ejecutaría código en la página. */
+export function hrefSeguro(url: unknown): string | null {
+  if (typeof url !== "string") return null;
+  try {
+    const u = new URL(url.trim());
+    return u.protocol === "https:" || u.protocol === "http:" ? url.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Los campos JSON del dataset (ubicaciones, enlaces, documentos) no tienen forma
  * fija entre fuentes: extraemos un texto legible y, si hay, una URL. */
 export function describir(item: unknown): { texto: string; url: string | null } | null {

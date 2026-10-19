@@ -14,3 +14,6 @@ ami-*.dump
 
 # salida del skill graphify
 graphify-out/
+
+# notas locales de traspaso entre sesiones: pueden tener datos sensibles
+HANDOFF.md

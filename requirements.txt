@@ -1,11 +1,18 @@
-fastapi>=0.115
-uvicorn>=0.30
-anthropic>=0.60
-voyageai>=0.3
-psycopg[binary]>=3.2
-pydantic>=2
-python-dotenv>=1.0
-pytest>=8
-httpx>=0.27
-openai>=1.40
-beautifulsoup4>=4.12
+# Versiones fijadas (las probadas en .venv) para que el build de Render sea
+# reproducible. Para actualizar: subir la versión acá, correr pytest y
+# `pip-audit -r requirements.txt`.
+fastapi==0.139.2
+uvicorn==0.51.0
+anthropic==0.117.0
+voyageai==0.5.0
+psycopg[binary]==3.3.4
+pydantic==2.13.4
+python-dotenv==1.2.2
+pytest==9.1.1
+httpx==0.28.1
+openai==2.46.0
+beautifulsoup4==4.15.0
+# Pisos de seguridad para dependencias transitivas (pip-audit, oct 2026)
+aiohttp>=3.14.3
+multidict>=6.9.1
+urllib3>=2.8.0

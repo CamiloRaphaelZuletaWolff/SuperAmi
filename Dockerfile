@@ -12,7 +12,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# Usuario sin privilegios: si alguien explota el proceso, no es root en el contenedor.
+# El código queda de root (solo lectura para "ami"): la app no escribe a disco.
+RUN useradd --create-home --uid 10001 ami
 COPY . .
+USER ami
 
 # Render inyecta $PORT; en local cae a 8000.
 EXPOSE 8000

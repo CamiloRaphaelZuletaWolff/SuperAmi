@@ -6,7 +6,9 @@ services:
       POSTGRES_PASSWORD: ami
       POSTGRES_DB: ami
     ports:
-      - "5434:5432"
+      # solo localhost: user/clave ami/ami no deben quedar abiertos a la red
+      - "127.0.0.1:5434:5432"
+      - "[::1]:5434:5432"
     volumes:
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
       - ami_pgdata:/var/lib/postgresql/data

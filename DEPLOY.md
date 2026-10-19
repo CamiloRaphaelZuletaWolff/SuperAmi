@@ -189,6 +189,14 @@ TRUNCATE conversaciones, consultas_log;
    | `WHATSAPP_PHONE_NUMBER_ID` | vacío por ahora |
    | `WHATSAPP_APP_SECRET` | el **nuevo** App Secret del paso 1 |
 
+   > **Obligatorios para WhatsApp:** sin `WHATSAPP_VERIFY_TOKEN` Meta no puede
+   > verificar el webhook (403), y sin `WHATSAPP_APP_SECRET` el backend rechaza
+   > **todos** los POST del webhook (401): sin firma, cualquiera podría gastar tu
+   > cuota de Gemini. `WHATSAPP_ALLOW_UNSIGNED=true` desactiva esa validación y es
+   > **solo para desarrollo local**; nunca la agregues en Render.
+   > `WHATSAPP_RATE_LIMIT_PER_MIN` (6 por defecto, ya en `render.yaml`) limita los
+   > mensajes por minuto de cada número.
+
 5. **Apply**. Render construye la imagen Docker (3–5 min). Míralo en
    `ami-backend` → **Logs**. Está listo cuando ves
    `Uvicorn running on http://0.0.0.0:10000` y el estado pasa a **Live**.
@@ -345,6 +353,8 @@ push a `main`. Si quieres que solo se publique lo que pasa el CI, en Render →
 | Meta: "The callback URL or verify token couldn't be validated" | Backend dormido o token distinto | Despierta `/health` primero; compara el token letra por letra. |
 | WhatsApp recibe pero no responde (401 en logs) | `WHATSAPP_TOKEN` vencido o sin permisos | Token de System User con expiración *Never* (paso 7.2). |
 | `firma inválida` en logs | `WHATSAPP_APP_SECRET` viejo | Pon el App Secret actual (el rotado en el paso 1). |
+| `WHATSAPP_APP_SECRET no configurado` en logs, webhook 401 | Falta el App Secret | Cárgalo en Render → Environment. El webhook ya no acepta POST sin firma. |
+| `/chat` responde 429 a todo el mundo | El límite por IP agrupa a todos | Revisa que llegue `X-Forwarded-For` con la IP pública del cliente (se usa la IP pública más a la derecha, la que agrega el proxy de Render). |
 | Render suspendido a fin de mes | Se acabaron las 750 h del workspace | Quita cualquier keep-alive; espera al día 1 o pasa un servicio a Starter. |
 | Build de Vercel falla con "No Next.js version detected" | Root Directory no es `frontend` | Settings → General → Root Directory = `frontend`. |
 
@@ -357,3 +367,13 @@ push a `main`. Si quieres que solo se publique lo que pasa el CI, en Render →
   Usa la misma `GEMINI_API_KEY` para que los embeddings nuevos sean compatibles.
 - **Neon** suspende el cómputo sin uso y lo despierta solo. No hay que hacer nada.
 - **Rotar secretos:** cámbialos en Render → Environment. Se redeploya solo.
+  Al rotar `WHATSAPP_APP_SECRET` las conversaciones de WhatsApp en curso empiezan
+  de cero (su id es un HMAC del número con ese secret, para no guardar el
+  teléfono en claro).
+- **Datos personales:** lo que escribe la gente queda en `conversaciones` (se
+  borra a las 24 h) y en `consultas_log` (se borra a los 90 días). La limpieza
+  corre en cada arranque del backend. Los números de WhatsApp no se guardan en
+  claro y en los logs aparecen enmascarados (`***1234`).
+- **Dependencias:** `requirements.txt` está fijado. Para actualizar, cambia la
+  versión, corre `pytest` y `pip-audit -r requirements.txt`; en el frontend
+  `npm audit --omit=dev`.

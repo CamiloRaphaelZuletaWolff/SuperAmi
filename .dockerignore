@@ -21,3 +21,4 @@ frontend/
 .github/
 *.pem
 Caddyfile
+*.key

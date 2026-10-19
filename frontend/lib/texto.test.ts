@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describir, deWhatsappAMarkdown, formatearCosto } from "./texto";
+import { describir, deWhatsappAMarkdown, formatearCosto, hrefSeguro } from "./texto";
 
 describe("deWhatsappAMarkdown", () => {
   it("convierte *negrita* de WhatsApp a markdown", () => {
@@ -38,5 +38,22 @@ describe("formatearCosto", () => {
     expect(formatearCosto(25, "Bs.")).toBe("Bs 25");
     expect(formatearCosto(25, null)).toBe("Bs 25");
     expect(formatearCosto(10, "USD")).toBe("10 USD");
+  });
+});
+
+describe("hrefSeguro", () => {
+  it("acepta solo http(s) absolutos", () => {
+    expect(hrefSeguro("https://impuestos.gob.bo/x")).toBe("https://impuestos.gob.bo/x");
+    expect(hrefSeguro(" http://x.bo ")).toBe("http://x.bo");
+    expect(hrefSeguro("javascript:alert(1)")).toBeNull();
+    expect(hrefSeguro("JaVaScRiPt:alert(1)")).toBeNull();
+    expect(hrefSeguro("data:text/html,<script>alert(1)</script>")).toBeNull();
+    expect(hrefSeguro("/relativo")).toBeNull();
+    expect(hrefSeguro(null)).toBeNull();
+    expect(hrefSeguro(42)).toBeNull();
+  });
+
+  it("describir no devuelve URLs peligrosas", () => {
+    expect(describir({ nombre: "Trampa", url: "javascript:alert(1)" })).toEqual({ texto: "Trampa", url: null });
   });
 });

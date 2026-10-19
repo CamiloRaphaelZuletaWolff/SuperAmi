@@ -253,3 +253,23 @@ def test_sin_traza_por_defecto(monkeypatch):
     deps = _deps()
     cid = deps.store.get_or_create(None)
     assert all(e != "trace" for e, _ in procesar_mensaje(deps, cid, "quiero sacar mi carnet"))
+
+
+def test_historial_al_llm_tiene_tope(monkeypatch):
+    _preparar(monkeypatch, [_hit(1, "CEDULA", 0.2), _hit(2, "PASAPORTE", 0.4)])
+    recibido = {}
+
+    class ChatEspia(FakeChat):
+        def stream(self, *, system, messages, max_tokens=4096):
+            recibido["messages"] = messages
+            yield "ok"
+
+    deps = _deps(potente=ChatEspia())
+    cid = deps.store.get_or_create(None)
+    for i in range(30):
+        deps.store.append(cid, "user", f"pregunta {i} " + "x" * 300)
+        deps.store.append(cid, "assistant", f"respuesta {i}")
+    list(procesar_mensaje(deps, cid, "quiero sacar mi carnet"))
+    assert len(recibido["messages"]) <= pipeline.MAX_MENSAJES_HISTORIAL
+    assert recibido["messages"][0]["role"] == "user"
+    assert recibido["messages"][-1]["content"] == "quiero sacar mi carnet"

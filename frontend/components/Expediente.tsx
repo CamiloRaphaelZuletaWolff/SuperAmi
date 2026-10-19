@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { obtenerFicha, type Ficha, type Traza as TipoTraza } from "@/lib/api";
-import { describir, ETIQUETA_RELACION, formatearCosto } from "@/lib/texto";
+import { describir, ETIQUETA_RELACION, formatearCosto, hrefSeguro } from "@/lib/texto";
 import { Traza } from "./Traza";
 
 type Props = {
@@ -116,7 +116,7 @@ export function Expediente({ tramiteId, traza, onAbrirTramite }: Props) {
               <h3>Dónde se hace</h3>
               <ul className="lista-simple">
                 {ubicaciones.slice(0, 4).map((u, i) => (
-                  <li key={i}>{u.url ? <a href={u.url} target="_blank" rel="noreferrer">{u.texto}</a> : u.texto}</li>
+                  <li key={i}>{u.url ? <a href={u.url} target="_blank" rel="noopener noreferrer">{u.texto}</a> : u.texto}</li>
                 ))}
               </ul>
             </section>
@@ -127,7 +127,7 @@ export function Expediente({ tramiteId, traza, onAbrirTramite }: Props) {
               <h3>Enlaces oficiales</h3>
               <ul className="lista-simple">
                 {enlaces.slice(0, 4).map((e, i) => (
-                  <li key={i}>{e.url ? <a href={e.url} target="_blank" rel="noreferrer">{e.texto}</a> : e.texto}</li>
+                  <li key={i}>{e.url ? <a href={e.url} target="_blank" rel="noopener noreferrer">{e.texto}</a> : e.texto}</li>
                 ))}
               </ul>
             </section>
@@ -152,10 +152,10 @@ export function Expediente({ tramiteId, traza, onAbrirTramite }: Props) {
           <footer className="ficha-pie">
             {actual.last_updated && <>Ficha oficial actualizada el {new Date(actual.last_updated).toLocaleDateString("es-BO")}. </>}
             Confirma los datos con la entidad antes de ir.
-            {actual.entidad_sitio_web && (
+            {hrefSeguro(actual.entidad_sitio_web) && (
               <>
                 {" "}
-                <a href={actual.entidad_sitio_web} target="_blank" rel="noreferrer">
+                <a href={hrefSeguro(actual.entidad_sitio_web) ?? undefined} target="_blank" rel="noopener noreferrer">
                   Sitio de la entidad
                 </a>
               </>

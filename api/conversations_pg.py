@@ -46,13 +46,22 @@ class PostgresConversationStore:
     def contar_aclaraciones(self, conversation_id: str) -> int:
         return sum(1 for m in self._crudos(conversation_id) if m.get("tipo") == "clarification")
 
-    def limpiar_viejas(self, horas: int = 24) -> None:
-        """Best-effort: se llama al armar las deps; un fallo no impide arrancar."""
+    def limpiar_viejas(self, horas: int = 24, dias_log: int = 90) -> None:
+        """Retención de datos personales (lo que escribe la gente). Best-effort:
+        se llama al armar las deps (cada arranque; Render free reinicia seguido);
+        un fallo no impide arrancar.
+
+        - conversaciones: `horas` (el historial solo sirve para la aclaración).
+        - consultas_log: `dias_log` (sirve para calibrar el gate y el eval)."""
         try:
             with get_connection() as conn:
                 conn.execute(
                     "DELETE FROM conversaciones WHERE updated_at < now() - make_interval(hours => %s)",
                     (horas,),
+                )
+                conn.execute(
+                    "DELETE FROM consultas_log WHERE ts < now() - make_interval(days => %s)",
+                    (dias_log,),
                 )
                 conn.commit()
         except Exception:

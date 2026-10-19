@@ -2,16 +2,17 @@ import json
 import logging
 import os
 import time
-from collections import defaultdict, deque
+import uuid
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Path, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api import whatsapp
 from api.deps import get_deps
+from api.limites import LimitadorPorMinuto, ip_cliente
 from api.pipeline import Deps, procesar_mensaje
 from db.connection import get_connection
 from db.queries import estadisticas, obtener_tramite
@@ -32,36 +33,63 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
+_CABECERAS_SEGURIDAD = [
+    (b"x-content-type-options", b"nosniff"),
+    (b"x-frame-options", b"DENY"),
+    (b"referrer-policy", b"no-referrer"),
+]
+
+
+class CabecerasDeSeguridad:
+    """API JSON/SSE: nadie debería embeberla en un iframe ni adivinarle el
+    content-type. Middleware ASGI puro (no BaseHTTPMiddleware) para no
+    interferir con el streaming SSE de /chat."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def enviar(mensaje):
+            if mensaje["type"] == "http.response.start":
+                mensaje.setdefault("headers", [])
+                mensaje["headers"] = list(mensaje["headers"]) + _CABECERAS_SEGURIDAD
+            await send(mensaje)
+
+        await self.app(scope, receive, enviar)
+
+
+app.add_middleware(CabecerasDeSeguridad)
+
 # Límite por IP para /chat: el demo es público y cada mensaje gasta cuota del LLM.
 # En memoria (una sola instancia en Render free); 0 lo desactiva.
 CHAT_LIMITE_POR_MINUTO = int(os.environ.get("CHAT_RATE_LIMIT_PER_MIN", "12"))
-_ventanas: dict[str, deque] = defaultdict(deque)
-
-
-def _ip_cliente(request: Request) -> str:
-    # Render (y cualquier proxy) agrega la IP real al inicio de X-Forwarded-For
-    reenviada = request.headers.get("x-forwarded-for")
-    if reenviada:
-        return reenviada.split(",")[0].strip()
-    return request.client.host if request.client else "desconocida"
+limitador_chat = LimitadorPorMinuto(CHAT_LIMITE_POR_MINUTO)
 
 
 def limitar_chat(request: Request) -> None:
-    if CHAT_LIMITE_POR_MINUTO <= 0:
-        return
-    ahora = time.monotonic()
-    ventana = _ventanas[_ip_cliente(request)]
-    while ventana and ahora - ventana[0] > 60:
-        ventana.popleft()
-    if len(ventana) >= CHAT_LIMITE_POR_MINUTO:
+    if not limitador_chat.permitir(ip_cliente(request)):
         raise HTTPException(status_code=429, detail="Demasiados mensajes seguidos. Espera un minuto 🙏")
-    ventana.append(ahora)
 
 
 class ChatRequest(BaseModel):
     mensaje: str = Field(min_length=1, max_length=1000)
     conversation_id: str | None = None
     traza: bool = False
+
+    @field_validator("conversation_id")
+    @classmethod
+    def _solo_uuid(cls, valor: str | None) -> str | None:
+        # Los ids que entrega el backend son UUID. Aceptar cualquier string dejaba
+        # pedir "whatsapp:<número>" y leer/escribir la conversación de esa persona.
+        if valor is None:
+            return None
+        try:
+            return str(uuid.UUID(valor))
+        except ValueError:
+            raise ValueError("conversation_id inválido") from None
 
 
 def _sse(evento: str, data: dict) -> str:
@@ -85,7 +113,7 @@ def chat(request: ChatRequest, deps: Deps = Depends(get_deps)):
 
 
 @app.get("/tramites/{tramite_id}")
-def tramite(tramite_id: int):
+def tramite(tramite_id: int = Path(ge=1, le=2_147_483_647)):
     with get_connection() as conn:
         ficha = obtener_tramite(conn, tramite_id)
     if ficha is None:
